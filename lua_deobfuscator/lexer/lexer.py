@@ -10,7 +10,7 @@ class Token:
     def __repr__(self):
         return f"Token({self.type}, {repr(self.value)}, Line {self.line}, Col {self.column})"
 
-class Lexer:
+class LuaLexer:
     def __init__(self, source_code):
         self.source_code = source_code
         self.tokens = []
@@ -61,10 +61,8 @@ class Lexer:
                     if token_type == "IDENTIFIER" and token_value in self.keywords:
                         token_type = token_value.upper()
                     elif token_type == "OPERATOR" and token_value in self.operators:
-                        # Specific operators handled above, generic ones here
                         pass
                     elif token_type == "PUNCTUATOR" and token_value in self.operators:
-                        # Specific punctuators handled above, generic ones here
                         pass
                     
                     self.tokens.append(Token(token_type, token_value, self.line, self.column))
@@ -78,16 +76,16 @@ class Lexer:
             regex_match = re.match(pattern, self.source_code[self.position:])
             if regex_match:
                 value = regex_match.group(0)
-                if token_type == "LONG_COMMENT": # Handle long comments as comments, not strings
-                    token_type = None # Ignore comments
+                if token_type == "LONG_COMMENT":
+                    token_type = None
                 elif token_type == "SHORT_COMMENT":
-                    token_type = None # Ignore comments
+                    token_type = None
                 return token_type, value
         return None, None
 
     def _advance_position(self, value):
         for char in value:
-            if char == '\\n':
+            if char == '\n':
                 self.line += 1
                 self.column = 1
             else:
@@ -114,7 +112,7 @@ local function test(a, b)
 end
 ::label::
 """
-    lexer = Lexer(lua_code)
+    lexer = LuaLexer(lua_code)
     tokens = lexer.tokenize()
     for token in tokens:
         print(token)

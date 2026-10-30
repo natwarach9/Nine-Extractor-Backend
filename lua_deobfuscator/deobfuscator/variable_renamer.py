@@ -1,0 +1,1 @@
+lua_deobfuscator/deobfuscator/variable_renamer.py

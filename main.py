@@ -1,4 +1,70 @@
-\nimport argparse\nimport os\n\nfrom lua_deobfuscator.lexer.lexer import LuaLexer, SyntaxError as LexerSyntaxError\nfrom lua_deobfuscator.parser.parser import LuaParser, ASTNode, SyntaxError as ParserSyntaxError\nfrom lua_deobfuscator.deobfuscator.detector import ObfuscatorDetector\nfrom lua_deobfuscator.deobfuscator.string_deobfuscator import StringDeobfuscator\nfrom lua_deobfuscator.deobfuscator.control_flow import ControlFlowDeobfuscator\nfrom lua_deobfuscator.deobfuscator.variable_renamer import VariableRenamer\nfrom lua_deobfuscator.deobfuscator.pretty_printer import LuaPrettyPrinter\nfrom lua_deobfuscator.sandbox.lua_sandbox import LuaSandbox\n\ndef main():\n    parser = argparse.ArgumentParser(\n        description=\"WORMGPT Lua Deobfuscator - Analyze and deobfuscate Lua scripts.\"\n    )\n    parser.add_argument(\'input\', type=str, help=\"Input Lua script file path or '-' for stdin\")\n    parser.add_argument(\'--output\', '-o', type=str, help=\"Output file path for deobfuscated code. If not specified, prints to stdout.\")\n    parser.add_argument(\'--detect-only\', '-d', action=\'store_true\', help=\"Only detect obfuscator, do not deobfuscate.\")\n    parser.add_argument(\'--no-rename\', action=\'store_true\', help=\"Do not attempt to rename obfuscated variables.\")\n    parser.add_argument(\'--no-control-flow\', action=\'store_true\', help=\"Do not apply control flow transformations.\")\n    parser.add_argument(\'--no-string-deobf\', action=\'store_true\', help=\"Do not attempt string deobfuscation.\")\n    parser.add_argument(\'--sandbox-timeout\', type=int, default=5, help=\"Timeout in seconds for sandbox execution (default: 5).\")\n\n    args = parser.parse_args()\n\n    lua_code = \"\"\n    if args.input == '-':\n        print(\"Enter Lua code (Ctrl+D to finish on Unix, Ctrl+Z then Enter on Windows):\")\n        lua_code = sys.stdin.read()\n    else:\n        if not os.path.exists(args.input):\n            print(f\"Error: Input file '{args.input}' not found.\")\n            return\n        with open(args.input, 'r', encoding=\'utf-8\') as f:\n            lua_code = f.read()\n\n    print(\"\n--- WORMGPT Lua Deobfuscator Started ---\")\n\n    # Step 1: Detect Obfuscator\n    detector = ObfuscatorDetector(lua_code)\n    detection_result = detector.detect_obfuscator()\n    print(f\"Obfuscator Detection: {{detection_result[\'obfuscator\']}} (Confidence: {{detection_result[\'confidence\']}} - Reason: {{detection_result[\'reason\']}})\")\n\n    if args.detect_only:\n        print(\"\n--- Detection Only, Exiting ---\")\n        return\n\n    # Initialize Sandbox for safe evaluation during deobfuscation\n    lua_sandbox = LuaSandbox(timeout=args.sandbox_timeout)\n\n    ast = None\n    try:\n        # Step 2: Lexical Analysis\n        lexer = LuaLexer(lua_code)\n        tokens = lexer.tokenize()\n        # print(\"\nTokens generated: ", len(tokens))\n        # for token in tokens[:10]: print(token) # Print first 10 tokens for debug
-\n        # Step 3: Syntax Analysis (Parsing to AST)\n        parser = LuaParser(tokens)\n        ast = parser.parse()\n        # print(\"\nAST generated successfully.\")\n        # print(ast.pretty_print()) # For debug
-\n    except LexerSyntaxError as e:\n        print(f\"Error during Lexical Analysis: {e}\")\n        return\n    except ParserSyntaxError as e:\n        print(f\"Error during Syntax Analysis: {e}\")\n        return\n    except Exception as e:\n        print(f\"An unexpected error occurred during parsing: {e}\")\n        return\n\n    # Step 4: String Deobfuscation\n    if not args.no_string_deobf:\n        print(\"\nApplying String Deobfuscation...\")\n        string_deobfuscator = StringDeobfuscator(ast)\n        string_deobfuscator.deobfuscate_strings() # This modifies AST in place\n        ast = string_deobfuscator.get_deobfuscated_ast()\n        print(f\"String Deobfuscation completed. Found {{len(string_deobfuscator.deobfuscated_strings)}} deobfuscated strings.\")\n    else:\n        print(\"\nString Deobfuscation skipped.\")\n
-    # Step 5: Control Flow Deobfuscation\n    if not args.no_control_flow:\n        print(\"\nApplying Control Flow Deobfuscation (Dead Code Removal)...\")\n        control_flow_deobfuscator = ControlFlowDeobfuscator(ast)\n        ast = control_flow_deobfuscator.deobfuscate_control_flow() # This modifies AST in place\n        print(f\"Control Flow Deobfuscation completed. {{control_flow_deobfuscator.transformations_applied}} transformations applied.\")\n    else:\n        print(\"\nControl Flow Deobfuscation skipped.\")\n\n    # Step 6: Variable Renaming\n    if not args.no_rename:\n        print(\"\nApplying Variable Renaming...\")\n        variable_renamer = VariableRenamer(ast)\n        ast = variable_renamer.rename_variables() # This modifies AST in place\n        print(\"Variable Renaming completed.\")\n    else:\n        print(\"\nVariable Renaming skipped.\")\n\n    # Step 7: Pretty Print AST back to Lua code\n    print(\"\nGenerating deobfuscated code...\")\n    pretty_printer = LuaPrettyPrinter(ast)\n    deobfuscated_code = pretty_printer.generate_code()\n\n    # Output the result\n    if args.output:\n        with open(args.output, 'w', encoding=\'utf-8\') as f:\n            f.write(deobfuscated_code)\n        print(f\"Deobfuscated code written to '{args.output}'\")\n    else:\n        print(\"\n--- Deobfuscated Lua Code ---\")\n        print(deobfuscated_code)\n        print(\"\n--- End Deobfuscated Code ---\")\n\n    print(\"\n--- WORMGPT Lua Deobfuscator Finished ---\")\n\nif __name__ == '__main__':\n    import sys\n    main()\n
+import os
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+
+from lua_deobfuscator.lexer.lexer import LuaLexer, SyntaxError as LexerSyntaxError
+from lua_deobfuscator.parser.parser import LuaParser, SyntaxError as ParserSyntaxError
+from lua_deobfuscator.deobfuscator.detector import ObfuscatorDetector
+from lua_deobfuscator.deobfuscator.string_deobfuscator import StringDeobfuscator
+from lua_deobfuscator.deobfuscator.control_flow import ControlFlowDeobfuscator
+from lua_deobfuscator.deobfuscator.variable_renamer import VariableRenamer
+from lua_deobfuscator.deobfuscator.pretty_printer import LuaPrettyPrinter
+from lua_deobfuscator.sandbox.lua_sandbox import LuaSandbox
+
+app = Flask(__name__)
+CORS(app)  # อนุญาตให้เว็บหน้าบ้านเรียกใช้งาน API ได้
+
+@app.route('/', methods=['GET'])
+def home():
+    return jsonify({"status": "active", "message": "NINE HUB Deobfuscator Backend is running!"})
+
+@app.route('/deobfuscate', methods=['POST'])
+def deobfuscate_code():
+    data = request.json
+    if not data or 'code' not in data:
+        return jsonify({"error": "No Lua code provided"}), 400
+
+    lua_code = data['code']
+    
+    try:
+        # Step 1: Detect Obfuscator
+        detector = ObfuscatorDetector(lua_code)
+        detection_result = detector.detect_obfuscator()
+
+        # Step 2 & 3: Lexical & Syntax Analysis
+        lexer = LuaLexer(lua_code)
+        tokens = lexer.tokenize()
+        parser = LuaParser(tokens)
+        ast = parser.parse()
+
+        # Step 4: String Deobfuscation
+        string_deobfuscator = StringDeobfuscator(ast)
+        string_deobfuscator.deobfuscate_strings()
+        ast = string_deobfuscator.get_deobfuscated_ast()
+
+        # Step 5: Control Flow Deobfuscation
+        control_flow_deobfuscator = ControlFlowDeobfuscator(ast)
+        ast = control_flow_deobfuscator.deobfuscate_control_flow()
+
+        # Step 6: Variable Renaming
+        variable_renamer = VariableRenamer(ast)
+        ast = variable_renamer.rename_variables()
+
+        # Step 7: Pretty Print
+        pretty_printer = LuaPrettyPrinter(ast)
+        deobfuscated_code = pretty_printer.generate_code()
+
+        return jsonify({
+            "success": True,
+            "detection": detection_result,
+            "deobfuscated_code": deobfuscated_code
+        })
+
+    except (LexerSyntaxError, ParserSyntaxError) as e:
+        return jsonify({"error": f"Syntax Error: str(e)"}), 400
+    except Exception as e:
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+if __name__ == '__main__':
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)

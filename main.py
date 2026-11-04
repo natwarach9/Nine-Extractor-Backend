@@ -61,7 +61,7 @@ def deobfuscate_code():
         })
 
     except (LexerSyntaxError, ParserSyntaxError) as e:
-        return jsonify({"error": f"Syntax Error: str(e)"}), 400
+        return jsonify({"error": f"Syntax Error: {str(e)}"}), 400
     except Exception as e:
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
 

@@ -2,8 +2,8 @@ import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
-from lua_deobfuscator.lexer.lexer import LuaLexer, SyntaxError as LexerSyntaxError
-from lua_deobfuscator.parser.parser import LuaParser, SyntaxError as ParserSyntaxError
+from lua_deobfuscator.lexer.lexer import LuaLexer
+from lua_deobfuscator.parser.parser import LuaParser
 from lua_deobfuscator.deobfuscator.detector import ObfuscatorDetector
 from lua_deobfuscator.deobfuscator.string_deobfuscator import StringDeobfuscator
 from lua_deobfuscator.deobfuscator.control_flow import ControlFlowDeobfuscator
@@ -12,7 +12,7 @@ from lua_deobfuscator.deobfuscator.pretty_printer import LuaPrettyPrinter
 from lua_deobfuscator.sandbox.lua_sandbox import LuaSandbox
 
 app = Flask(__name__)
-CORS(app)  # อนุญาตให้เว็บหน้าบ้านเรียกใช้งาน API ได้
+CORS(app)  # อนุญาตให้เว็บหน้าบ้านยิง API ข้ามโดเมนได้
 
 @app.route('/', methods=['GET'])
 def home():
@@ -60,8 +60,6 @@ def deobfuscate_code():
             "deobfuscated_code": deobfuscated_code
         })
 
-    except (LexerSyntaxError, ParserSyntaxError) as e:
-        return jsonify({"error": f"Syntax Error: {str(e)}"}), 400
     except Exception as e:
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
 

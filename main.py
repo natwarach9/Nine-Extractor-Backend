@@ -1,68 +1,100 @@
-import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-
-from lua_deobfuscator.lexer.lexer import LuaLexer
-from lua_deobfuscator.parser.parser import LuaParser
-from lua_deobfuscator.deobfuscator.detector import ObfuscatorDetector
-from lua_deobfuscator.deobfuscator.string_deobfuscator import StringDeobfuscator
-from lua_deobfuscator.deobfuscator.control_flow import ControlFlowDeobfuscator
-from lua_deobfuscator.deobfuscator.variable_renamer import VariableRenamer
-from lua_deobfuscator.deobfuscator.pretty_printer import LuaPrettyPrinter
-from lua_deobfuscator.sandbox.lua_sandbox import LuaSandbox
+import re
 
 app = Flask(__name__)
-CORS(app)  # อนุญาตให้เว็บหน้าบ้านยิง API ข้ามโดเมนได้
+CORS(app)
 
-@app.route('/', methods=['GET'])
-def home():
-    return jsonify({"status": "active", "message": "NINE HUB Deobfuscator Backend is running!"})
+INT_RE  = re.compile(r'-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?')
+STR_RE  = re.compile(r'"(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'')
+BOOL_RE = re.compile(r'\b(?:true|false|nil)\b')
+FUNC_RE = re.compile(r'\bfunction\b')
+
+def scan_tables(src: str):
+    out, i, n = [], 0, len(src)
+    while i < n:
+        if src[i] == '{':
+            depth, start, j = 0, i, i
+            in_str = None
+            while j < n:
+                c = src[j]
+                if in_str:
+                    if c == '\\': j += 2; continue
+                    if c == in_str: in_str = None
+                elif c in '"\'': in_str = c
+                elif c == '{': depth += 1
+                elif c == '}':
+                    depth -= 1
+                    if depth == 0:
+                        out.append(src[start:j + 1]); break
+                j += 1
+            i = j + 1 if j > i else i + 1
+        else:
+            i += 1
+    return out
+
+def classify(body: str):
+    inner = body[1:-1]
+    nf = len(FUNC_RE.findall(inner))
+    if nf >= 8:
+        return ('handlers', nf, None)
+    ints  = INT_RE.findall(inner)
+    strs  = STR_RE.findall(inner)
+    bools = BOOL_RE.findall(inner)
+    if len(ints) > 100 and not strs and not bools:
+        return ('bytecode', len(ints), [int(x) if '.' not in x and 'e' not in x.lower() else float(x) for x in ints])
+    if strs:
+        return ('constants', len(strs), strs)
+    return None
+
+def unquote(s: str) -> str:
+    if len(s) >= 2 and s[0] == s[-1] and s[0] in '"\'':
+        return s[1:-1]
+    return s
 
 @app.route('/deobfuscate', methods=['POST'])
-def deobfuscate_code():
-    data = request.json
-    if not data or 'code' not in data:
-        return jsonify({"error": "No Lua code provided"}), 400
-
-    lua_code = data['code']
+def deobfuscate():
+    data = request.get_json() or {}
+    src = data.get('code', '')
     
+    if not src or len(src) < 50:
+        return jsonify({'success': False, 'error': 'โค้ดสั้นเกินไปหรือว่างเปล่า'})
+
     try:
-        # Step 1: Detect Obfuscator
-        detector = ObfuscatorDetector(lua_code)
-        detection_result = detector.detect_obfuscator()
+        bytecode, constants, handlers = None, None, 0
+        for body in scan_tables(src):
+            cls = classify(body)
+            if not cls: continue
+            kind, n, val = cls
+            if kind == 'bytecode' and (bytecode is None or n > len(bytecode)):
+                bytecode = val
+            elif kind == 'constants' and (constants is None or n > len(constants)):
+                constants = val
+            elif kind == 'handlers':
+                handlers = max(handlers, n)
 
-        # Step 2 & 3: Lexical & Syntax Analysis
-        lexer = LuaLexer(lua_code)
-        tokens = lexer.tokenize()
-        parser = LuaParser(tokens)
-        ast = parser.parse()
+        extracted_strings = []
+        if constants:
+            extracted_strings = [unquote(c) for c in constants if c and c[0] in '"\'']
 
-        # Step 4: String Deobfuscation
-        string_deobfuscator = StringDeobfuscator(ast)
-        string_deobfuscator.deobfuscate_strings()
-        ast = string_deobfuscator.get_deobfuscated_ast()
-
-        # Step 5: Control Flow Deobfuscation
-        control_flow_deobfuscator = ControlFlowDeobfuscator(ast)
-        ast = control_flow_deobfuscator.deobfuscate_control_flow()
-
-        # Step 6: Variable Renaming
-        variable_renamer = VariableRenamer(ast)
-        ast = variable_renamer.rename_variables()
-
-        # Step 7: Pretty Print
-        pretty_printer = LuaPrettyPrinter(ast)
-        deobfuscated_code = pretty_printer.generate_code()
-
+        result_lines = [
+            "-- [ NINE EXTRACTOR - STATIC ANALYSIS RESULT ]",
+            f"-- Handlers detected: {handlers}",
+            f"-- Bytecode probes: {len(bytecode) if bytecode else 0}",
+            f"-- Constants found: {len(extracted_strings)} strings",
+            "",
+            "local Constants = {"
+        ]
+        for s in extracted_strings[:100]:
+            result_lines.append(f"    {repr(s)},")
+        result_lines.append("}")
+        
         return jsonify({
-            "success": True,
-            "detection": detection_result,
-            "deobfuscated_code": deobfuscated_code
+            'success': True,
+            'deobfuscated_code': '\n'.join(result_lines)
         })
-
     except Exception as e:
-        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+        return jsonify({'success': False, 'error': str(e)})
 
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host='0.0.0.0', port=5000)
